@@ -8,7 +8,7 @@ object CoordinateConverter {
      * More efficient impl of [BlockPos.toString]
      */
     fun BlockPos.asString(): String {
-        return "${this.x}, ${this.y}, ${this.z}"
+        return "(${this.x}, ${this.z})"
     }
 
     fun toCurrent(dimension: Int, pos: BlockPos): BlockPos {
