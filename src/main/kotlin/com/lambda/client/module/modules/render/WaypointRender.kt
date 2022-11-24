@@ -37,21 +37,21 @@ object WaypointRender : Module(
     private val dimension = setting("Dimension", Dimension.CURRENT, { page == Page.INFO_BOX })
     private val showName = setting("Show Name", true, { page == Page.INFO_BOX })
     private val showDate = setting("Show Date", false, { page == Page.INFO_BOX })
-    private val showCoordinates = setting("Show Coordinates", true, { page == Page.INFO_BOX })
     private val showDist = setting("Show Distance", true, { page == Page.INFO_BOX })
+    private val showCoordinates = setting("Show Coordinates", true, { page == Page.INFO_BOX })
     private val textScale by setting("Text Scale", 1.0f, 0.0f..2.0f, 0.1f, { page == Page.INFO_BOX })
-    private val infoBoxRange by setting("Info Box Range", 512, 128..2048, 64, { page == Page.INFO_BOX })
+    private val infoBoxRange by setting("Info Box Range", 512, 128..60000000, 64, { page == Page.INFO_BOX })
 
     /* Page two */
-    private val espRangeLimit by setting("Render Range", true, { page == Page.RENDER && renderMode != RenderMode.RADAR })
+    private val espRangeLimit by setting("Render Range", false, { page == Page.RENDER && renderMode != RenderMode.RADAR })
     private val espRange by setting("Range", 4096, 1024..16384, 1024, { page == Page.RENDER && espRangeLimit && renderMode != RenderMode.RADAR }, unit = " blocks")
-    private val filled by setting("Filled", true, { page == Page.RENDER && renderMode != RenderMode.RADAR })
+    private val filled by setting("Filled", false, { page == Page.RENDER && renderMode != RenderMode.RADAR })
     private val outline by setting("Outline", true, { page == Page.RENDER && renderMode != RenderMode.RADAR })
-    private val tracer by setting("Tracer", true, { page == Page.RENDER && renderMode != RenderMode.RADAR })
+    private val tracer by setting("Tracer", false, { page == Page.RENDER && renderMode != RenderMode.RADAR })
     private val color by setting("Color", ColorHolder(31, 200, 63), false, { page == Page.RENDER })
-    private val aFilled by setting("Filled Alpha", 63, 0..255, 1, { page == Page.RENDER && filled && renderMode != RenderMode.RADAR })
-    private val aOutline by setting("Outline Alpha", 160, 0..255, 1, { page == Page.RENDER && outline && renderMode != RenderMode.RADAR })
-    private val aTracer by setting("Tracer Alpha", 200, 0..255, 1, { page == Page.RENDER && tracer && renderMode != RenderMode.RADAR })
+    private val aFilled by setting("Filled Alpha", 0, 0..255, 1, { page == Page.RENDER && filled && renderMode != RenderMode.RADAR })
+    private val aOutline by setting("Outline Alpha", 0, 0..255, 1, { page == Page.RENDER && outline && renderMode != RenderMode.RADAR })
+    private val aTracer by setting("Tracer Alpha", 0, 0..255, 1, { page == Page.RENDER && tracer && renderMode != RenderMode.RADAR })
     private val thickness by setting("Line Thickness", 2.0f, 0.25f..8.0f, 0.25f, { page == Page.RENDER })
     private val waypointDot by setting("Waypoint Dot Size", 3.5, 1.0..8.0, 0.5, { page == Page.RENDER && renderMode != RenderMode.WORLD })
 
@@ -71,7 +71,6 @@ object WaypointRender : Module(
     private val waypointMap = TreeMap<Waypoint, TextComponent>(compareByDescending {
         mc.player?.distanceTo(it.pos) ?: it.pos.getDistance(0, -69420, 0)
     })
-    private var currentServer: String? = null
     private var timer = TickTimer(TimeUnit.SECONDS)
     private var prevDimension = -2
     private val lockObject = Any()
@@ -93,28 +92,15 @@ object WaypointRender : Module(
                 if (espRangeLimit && distance > espRange) continue
 
                 renderer.add(AxisAlignedBB(waypoint.pos), color) /* Adds pos to ESPRenderer list */
-                drawVerticalLines(waypoint.pos, color, aOutline) /* Draw lines from y 0 to y 256 */
             }
 
             GlStateUtils.depth(true)
             renderer.render(true)
         }
     }
-
-    private fun drawVerticalLines(pos: BlockPos, color: ColorHolder, a: Int) {
-        val box = AxisAlignedBB(
-            pos.x.toDouble(), 0.0, pos.z.toDouble(),
-            pos.x + 1.0, 256.0, pos.z + 1.0
-        )
-
-        LambdaTessellator.begin(GL_LINES)
-        LambdaTessellator.drawOutline(box, color, a, GeometryMasks.Quad.ALL, thickness)
-        LambdaTessellator.render()
-    }
-
     init {
         listener<RenderOverlayEvent> {
-            if (waypointMap.isEmpty() || !showCoordinates.value && !showName.value && !showDate.value && !showDist.value) {
+            if (waypointMap.isEmpty() || !showDist.value && !showCoordinates.value && !showName.value && !showDate.value) {
                 return@listener
             }
 
@@ -122,31 +108,33 @@ object WaypointRender : Module(
 
             for ((waypoint, textComponent) in waypointMap) {
                 val distance = sqrt(mc.player.getDistanceSqToCenter(waypoint.pos))
+                val roundoff = (distance * 10.0).roundToInt() / 10.0
                 if (distance > infoBoxRange) continue
 
-                drawText(waypoint.pos, textComponent, distance.roundToInt())
+                drawText(textComponent, roundoff , waypoint.pos)
             }
 
             GlStateUtils.rescaleMc()
         }
     }
 
-    private fun drawText(pos: BlockPos, textComponentIn: TextComponent, distance: Int) {
+    private fun drawText(textComponentIn: TextComponent, roundoff: Double, pos: BlockPos) {
         glPushMatrix()
 
-        val screenPos = ProjectionUtils.toScreenPos(pos.toVec3dCenter())
-        glTranslatef(screenPos.x.toFloat(), screenPos.y.toFloat(), 0f)
-        glScalef(textScale * 2f, textScale * 2f, 0f)
-
-        val textComponent = TextComponent(textComponentIn).apply { if (showDist.value) add("$distance m") }
+        val textComponent = TextComponent(textComponentIn).apply { if (showDist.value) add("$roundoff") }
         val stringWidth = textComponent.getWidth()
         val stringHeight = textComponent.getHeight(2)
         val vertexHelper = VertexHelper(GlStateUtils.useVbo())
         val pos1 = Vec2d(stringWidth * -0.5 - 4.0, stringHeight * -0.5 - 4.0)
         val pos2 = Vec2d(stringWidth * 0.5 + 4.0, stringHeight * 0.5 + 4.0)
+        
+        val screenPos = ProjectionUtils.toScreenPos(pos.toVec3dCenter())
+        glTranslatef(screenPos.x.toFloat(), screenPos.y.toFloat(), 0f)
+        glScalef(textScale * 2f, textScale * 2f, 0f)
 
-        RenderUtils2D.drawRectFilled(vertexHelper, pos1, pos2, ColorHolder(32, 32, 32, 172))
-        RenderUtils2D.drawRectOutline(vertexHelper, pos1, pos2, 2f, ColorHolder(80, 80, 80, 232))
+
+        //RenderUtils2D.drawRectFilled(vertexHelper, pos1, pos2, ColorHolder(32, 32, 32, 172))
+        //RenderUtils2D.drawRectOutline(vertexHelper, pos1, pos2, 2f, ColorHolder(80, 80, 80, 232))
         textComponent.draw(drawShadow = false, horizontalAlign = HAlign.CENTER, verticalAlign = VAlign.CENTER)
 
         glPopMatrix()
@@ -158,7 +146,6 @@ object WaypointRender : Module(
         }
 
         onDisable {
-            currentServer = null
         }
 
         safeListener<TickEvent.ClientTickEvent> {
@@ -194,10 +181,6 @@ object WaypointRender : Module(
                 }
             }
         }
-
-        listener<ConnectionEvent.Disconnect> {
-            currentServer = null
-        }
     }
 
     private fun getPos(waypoint: Waypoint, playerOffset: Vec2d, scale: Float): Vec2d {
@@ -208,13 +191,9 @@ object WaypointRender : Module(
     private fun updateList() {
         timer.reset()
         prevDimension = WaypointManager.genDimension()
-        if (currentServer == null) {
-            currentServer = WaypointManager.genServer()
-        }
-
+        
         val cacheList = WaypointManager.waypoints.filter {
-            (it.server == null || it.server == currentServer)
-                && (dimension.value == Dimension.ANY || it.dimension == prevDimension)
+		(dimension.value == Dimension.ANY || it.dimension == prevDimension)
         }
         waypointMap.clear()
 
@@ -240,9 +219,9 @@ object WaypointRender : Module(
         ) {
             showName.listeners.add(this)
             showDate.listeners.add(this)
-            showCoordinates.listeners.add(this)
             showDist.listeners.add(this)
-        }
+            showCoordinates.listeners.add(this)
+           }
 
         dimension.listeners.add {
             synchronized(lockObject) {
