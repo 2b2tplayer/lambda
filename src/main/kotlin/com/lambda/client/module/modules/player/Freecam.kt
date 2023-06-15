@@ -23,13 +23,15 @@ import com.lambda.client.util.threads.onMainThreadSafe
 import com.lambda.client.util.threads.runSafeR
 import com.lambda.client.util.threads.safeListener
 import kotlinx.coroutines.runBlocking
-import net.minecraft.client.entity.EntityOtherPlayerMP
 import net.minecraft.client.entity.EntityPlayerSP
 import net.minecraft.client.multiplayer.WorldClient
+import net.minecraft.client.network.NetHandlerPlayClient
 import net.minecraft.entity.Entity
 import net.minecraft.entity.MoverType
 import net.minecraft.entity.player.EntityPlayer
+import net.minecraft.network.Packet
 import net.minecraft.network.play.client.CPacketUseEntity
+import net.minecraft.network.play.server.SPacketEntityHeadLook
 import net.minecraft.util.MovementInput
 import net.minecraft.util.MovementInputFromOptions
 import net.minecraft.util.math.BlockPos
@@ -55,6 +57,7 @@ object Freecam : Module(
     private val horizontalSpeed by setting("Horizontal Speed", 20.0f, 1.0f..50.0f, 1f)
     private val verticalSpeed by setting("Vertical Speed", 20.0f, 1.0f..50.0f, 1f, { directionMode == FlightMode.CREATIVE })
     private val autoRotate by setting("Auto Rotate", true)
+    private val cheese by setting("Cheese", false, description = "Make group pictures without headache")
     private val arrowKeyMove by setting("Arrow Key Move", true)
     private val disableOnDisconnect by setting("Disconnect Disable", true)
     private val leftClickCome by setting("Left Click Come", false)
@@ -158,8 +161,24 @@ object Freecam : Module(
 
             if (BaritoneUtils.isActive) return@safeListener
 
-            if (autoRotate) updatePlayerRotation()
+            if (cheese) {
+                cameraGuy?.let { camGuy ->
+                    world.loadedEntityList.filterIsInstance<EntityPlayer>()
+                        .filter { otherPlayer -> otherPlayer != camGuy }
+                        .forEach { otherPlayer ->
+                            val rotation = getRotationTo(otherPlayer.getPositionEyes(1.0f), camGuy.getPositionEyes(1.0f))
+
+                            otherPlayer.rotationYaw = rotation.x
+                            otherPlayer.rotationYawHead = rotation.x
+                            otherPlayer.rotationPitch = rotation.y
+                        }
+                }
+            } else if (autoRotate) updatePlayerRotation()
             if (arrowKeyMove) updatePlayerMovement()
+        }
+
+        safeListener<PacketEvent.Receive> {
+            if (it.packet is SPacketEntityHeadLook && cheese) it.cancel()
         }
 
         listener<InputEvent.MouseInputEvent> {
@@ -247,7 +266,7 @@ object Freecam : Module(
         }
     }
 
-    private class FakeCamera(world: WorldClient, val player: EntityPlayerSP) : EntityOtherPlayerMP(world, mc.session.profile) {
+    private class FakeCamera(world: WorldClient, val player: EntityPlayerSP) : EntityPlayerSP(mc, world, NoOpNetHandlerPlayerClient(player.connection), player.statFileWriter, player.recipeBook) {
         init {
             copyLocationAndAnglesFrom(player)
             capabilities.allowFlying = true
@@ -258,6 +277,7 @@ object Freecam : Module(
             // Update inventory
             inventory.copyInventory(player.inventory)
 
+            this.movementInput = MovementInput()
             // Update yaw head
             updateEntityActionState()
 
@@ -311,6 +331,12 @@ object Freecam : Module(
         override fun isInvisible() = true
 
         override fun isInvisibleToPlayer(player: EntityPlayer) = true
+    }
+
+    private class NoOpNetHandlerPlayerClient(realNetHandler: NetHandlerPlayClient) : NetHandlerPlayClient(mc, null, realNetHandler.networkManager, realNetHandler.gameProfile) {
+        override fun sendPacket(packetIn: Packet<*>) {
+            // no packets from freecam player, thanks
+        }
     }
 
     /**

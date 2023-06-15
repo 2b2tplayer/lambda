@@ -1,6 +1,8 @@
 package com.lambda.client
 
 import com.lambda.client.event.ForgeEventProcessor
+import com.lambda.client.event.LambdaEventBus
+import com.lambda.client.event.events.RealWorldTickEvent
 import com.lambda.client.gui.clickgui.LambdaClickGui
 import com.lambda.client.util.ConfigUtils
 import com.lambda.client.util.KamiCheck
@@ -29,7 +31,7 @@ class LambdaMod {
         const val ID = "lambda"
         const val DIRECTORY = "lambda"
 
-        const val VERSION = "3.2.1"
+        const val VERSION = "3.3.0"
 
         const val APP_ID = 835368493150502923 // DiscordIPC
         const val DEPENDENCIES = "required-after:forge@[14.23.5.2860,);"
@@ -70,8 +72,6 @@ class LambdaMod {
         ConfigUtils.moveAllLegacyConfigs()
         ConfigUtils.loadAll()
 
-        BackgroundScope.start()
-
         WebUtils.updateCheck()
         LambdaClickGui.populateRemotePlugins()
 
@@ -83,5 +83,9 @@ class LambdaMod {
     @Mod.EventHandler
     fun postInit(event: FMLPostInitializationEvent) {
         ready = true
+        BackgroundScope.launchLooping("RealWorldTick", 50L) {
+            LambdaEventBus.post(RealWorldTickEvent())
+        }
+        BackgroundScope.start()
     }
 }
